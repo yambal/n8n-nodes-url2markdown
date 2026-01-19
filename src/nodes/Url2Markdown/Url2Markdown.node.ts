@@ -6,6 +6,9 @@ import {
 	INodeTypeDescription,
 	NodeOperationError,
 } from 'n8n-workflow';
+import { Readability } from '@mozilla/readability';
+import { JSDOM } from 'jsdom';
+import TurndownService from 'turndown';
 
 export class Url2Markdown implements INodeType {
 	description: INodeTypeDescription = {
@@ -15,7 +18,7 @@ export class Url2Markdown implements INodeType {
 		group: ['transform'],
 		version: 1,
 		subtitle: 'Convert webpage to Markdown',
-		description: 'Fetch a URL and convert its content to Markdown using Jina Reader API',
+		description: 'Fetch a URL and convert its content to Markdown using Readability and Turndown',
 		defaults: {
 			name: 'URL to Markdown',
 		},
@@ -45,6 +48,42 @@ export class Url2Markdown implements INodeType {
 						default: 30,
 						description: 'リクエストのタイムアウト秒数',
 					},
+					{
+						displayName: 'Include Links',
+						name: 'includeLinks',
+						type: 'boolean',
+						default: true,
+						description: 'Markdownにリンクを含めるか',
+					},
+					{
+						displayName: 'Include Images',
+						name: 'includeImages',
+						type: 'boolean',
+						default: true,
+						description: 'Markdownに画像を含めるか',
+					},
+					{
+						displayName: 'Heading Style',
+						name: 'headingStyle',
+						type: 'options',
+						default: 'atx',
+						options: [
+							{ name: 'ATX (# Heading)', value: 'atx' },
+							{ name: 'Setext (Underlined)', value: 'setext' },
+						],
+						description: '見出しのスタイル',
+					},
+					{
+						displayName: 'Code Block Style',
+						name: 'codeBlockStyle',
+						type: 'options',
+						default: 'fenced',
+						options: [
+							{ name: 'Fenced (```)', value: 'fenced' },
+							{ name: 'Indented', value: 'indented' },
+						],
+						description: 'コードブロックのスタイル',
+					},
 				],
 			},
 		],
@@ -59,23 +98,31 @@ export class Url2Markdown implements INodeType {
 				const url = this.getNodeParameter('url', i) as string;
 				const options = this.getNodeParameter('options', i, {}) as IDataObject;
 				const timeout = (options.timeout as number) || 30;
+				const includeLinks = options.includeLinks !== false;
+				const includeImages = options.includeImages !== false;
+				const headingStyle = (options.headingStyle as 'atx' | 'setext') || 'atx';
+				const codeBlockStyle = (options.codeBlockStyle as 'fenced' | 'indented') || 'fenced';
 
 				if (!url) {
 					throw new NodeOperationError(this.getNode(), 'URL is required', { itemIndex: i });
 				}
 
-				// Jina Reader API を使用
-				const jinaUrl = `https://r.jina.ai/${url}`;
-
+				// Fetch HTML
 				const controller = new AbortController();
 				const timeoutId = setTimeout(() => controller.abort(), timeout * 1000);
 
+				let html: string;
+				let finalUrl: string = url;
+
 				try {
-					const response = await fetch(jinaUrl, {
+					const response = await fetch(url, {
 						headers: {
-							'Accept': 'text/markdown',
+							'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+							'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+							'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
 						},
 						signal: controller.signal,
+						redirect: 'follow',
 					});
 
 					clearTimeout(timeoutId);
@@ -88,15 +135,8 @@ export class Url2Markdown implements INodeType {
 						);
 					}
 
-					const markdown = await response.text();
-
-					returnData.push({
-						json: {
-							url,
-							markdown,
-							contentLength: markdown.length,
-						} as IDataObject,
-					});
+					html = await response.text();
+					finalUrl = response.url;
 				} catch (fetchError) {
 					clearTimeout(timeoutId);
 					if (fetchError instanceof Error && fetchError.name === 'AbortError') {
@@ -108,6 +148,55 @@ export class Url2Markdown implements INodeType {
 					}
 					throw fetchError;
 				}
+
+				// Parse with JSDOM and Readability
+				const dom = new JSDOM(html, { url: finalUrl });
+				const reader = new Readability(dom.window.document);
+				const article = reader.parse();
+
+				if (!article) {
+					throw new NodeOperationError(
+						this.getNode(),
+						'Failed to parse article content from the page',
+						{ itemIndex: i }
+					);
+				}
+
+				// Convert to Markdown with Turndown
+				const turndownService = new TurndownService({
+					headingStyle: headingStyle,
+					codeBlockStyle: codeBlockStyle,
+				});
+
+				// Configure link handling
+				if (!includeLinks) {
+					turndownService.addRule('removeLinks', {
+						filter: 'a',
+						replacement: (content) => content,
+					});
+				}
+
+				// Configure image handling
+				if (!includeImages) {
+					turndownService.addRule('removeImages', {
+						filter: 'img',
+						replacement: () => '',
+					});
+				}
+
+				const markdown = turndownService.turndown(article.content);
+
+				returnData.push({
+					json: {
+						url: finalUrl,
+						title: article.title,
+						byline: article.byline,
+						excerpt: article.excerpt,
+						siteName: article.siteName,
+						markdown,
+						contentLength: markdown.length,
+					} as IDataObject,
+				});
 			} catch (error) {
 				if (this.continueOnFail()) {
 					returnData.push({

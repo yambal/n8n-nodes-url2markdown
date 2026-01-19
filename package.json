@@ -1,7 +1,7 @@
 {
   "name": "n8n-nodes-url2markdown",
-  "version": "0.1.0",
-  "description": "n8n node to convert URL to Markdown using Jina Reader API",
+  "version": "0.2.0",
+  "description": "n8n node to convert URL to Markdown using Readability and Turndown",
   "keywords": [
     "n8n",
     "n8n-community-node-package",
@@ -9,7 +9,8 @@
     "url",
     "web",
     "scraping",
-    "jina"
+    "readability",
+    "turndown"
   ],
   "license": "MIT",
   "author": {
@@ -36,8 +37,15 @@
   "files": [
     "dist"
   ],
+  "dependencies": {
+    "@mozilla/readability": "^0.5.0",
+    "jsdom": "^26.0.0",
+    "turndown": "^7.2.0"
+  },
   "devDependencies": {
+    "@types/jsdom": "^21.1.7",
     "@types/node": "^22.0.0",
+    "@types/turndown": "^5.0.5",
     "n8n-workflow": "^1.70.0",
     "typescript": "^5.7.0"
   },
