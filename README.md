@@ -47,6 +47,11 @@ npm install n8n-nodes-url2markdown
 |--------|------|---------|-------------|
 | URL | string | - | URL to convert (required) |
 | Timeout | number | 30 | Request timeout in seconds |
+| Include Links | boolean | true | Include links in Markdown |
+| Image Handling | options | include | How to handle images: `include` (keep), `altText` (replace with alt text), `remove` |
+| Heading Style | options | atx | Heading style: `atx` (# Heading) or `setext` (underlined) |
+| Code Block Style | options | fenced | Code block style: `fenced` (```) or `indented` |
+| Include Frontmatter | boolean | false | Add YAML frontmatter with metadata (title, url, author, site, excerpt, date) |
 
 ## License
 

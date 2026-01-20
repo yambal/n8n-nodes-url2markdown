@@ -56,11 +56,16 @@ export class Url2Markdown implements INodeType {
 						description: 'Markdownにリンクを含めるか',
 					},
 					{
-						displayName: 'Include Images',
-						name: 'includeImages',
-						type: 'boolean',
-						default: true,
-						description: 'Markdownに画像を含めるか',
+						displayName: 'Image Handling',
+						name: 'imageHandling',
+						type: 'options',
+						default: 'include',
+						options: [
+							{ name: 'Include (keep as Markdown image)', value: 'include' },
+							{ name: 'Replace with Alt Text', value: 'altText' },
+							{ name: 'Remove', value: 'remove' },
+						],
+						description: '画像の処理方法',
 					},
 					{
 						displayName: 'Heading Style',
@@ -84,6 +89,13 @@ export class Url2Markdown implements INodeType {
 						],
 						description: 'コードブロックのスタイル',
 					},
+					{
+						displayName: 'Include Frontmatter',
+						name: 'includeFrontmatter',
+						type: 'boolean',
+						default: false,
+						description: 'YAML frontmatterをMarkdownの先頭に追加するか',
+					},
 				],
 			},
 		],
@@ -99,9 +111,10 @@ export class Url2Markdown implements INodeType {
 				const options = this.getNodeParameter('options', i, {}) as IDataObject;
 				const timeout = (options.timeout as number) || 30;
 				const includeLinks = options.includeLinks !== false;
-				const includeImages = options.includeImages !== false;
+				const imageHandling = (options.imageHandling as 'include' | 'altText' | 'remove') || 'include';
 				const headingStyle = (options.headingStyle as 'atx' | 'setext') || 'atx';
 				const codeBlockStyle = (options.codeBlockStyle as 'fenced' | 'indented') || 'fenced';
+				const includeFrontmatter = options.includeFrontmatter === true;
 
 				if (!url) {
 					throw new NodeOperationError(this.getNode(), 'URL is required', { itemIndex: i });
@@ -177,14 +190,52 @@ export class Url2Markdown implements INodeType {
 				}
 
 				// Configure image handling
-				if (!includeImages) {
+				if (imageHandling === 'remove') {
 					turndownService.addRule('removeImages', {
 						filter: 'img',
 						replacement: () => '',
 					});
+				} else if (imageHandling === 'altText') {
+					turndownService.addRule('imageAltText', {
+						filter: 'img',
+						replacement: (_content, node) => {
+							const alt = (node as HTMLElement).getAttribute('alt');
+							if (alt && alt.trim()) {
+								return `[画像: ${alt.trim()}]`;
+							}
+							return '[画像]';
+						},
+					});
 				}
 
-				const markdown = turndownService.turndown(article.content);
+				let markdown = turndownService.turndown(article.content);
+
+				// Add frontmatter if enabled
+				if (includeFrontmatter) {
+					const frontmatterLines = ['---'];
+					if (article.title) {
+						// Escape quotes in title for YAML
+						const escapedTitle = article.title.replace(/"/g, '\\"');
+						frontmatterLines.push(`title: "${escapedTitle}"`);
+					}
+					frontmatterLines.push(`url: "${finalUrl}"`);
+					if (article.byline) {
+						const escapedByline = article.byline.replace(/"/g, '\\"');
+						frontmatterLines.push(`author: "${escapedByline}"`);
+					}
+					if (article.siteName) {
+						const escapedSiteName = article.siteName.replace(/"/g, '\\"');
+						frontmatterLines.push(`site: "${escapedSiteName}"`);
+					}
+					if (article.excerpt) {
+						const escapedExcerpt = article.excerpt.replace(/"/g, '\\"').replace(/\n/g, ' ');
+						frontmatterLines.push(`excerpt: "${escapedExcerpt}"`);
+					}
+					frontmatterLines.push(`date: "${new Date().toISOString()}"`);
+					frontmatterLines.push('---');
+					frontmatterLines.push('');
+					markdown = frontmatterLines.join('\n') + markdown;
+				}
 
 				returnData.push({
 					json: {

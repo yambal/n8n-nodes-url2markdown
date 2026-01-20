@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-url2markdown",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "n8n node to convert URL to Markdown using Readability and Turndown",
   "keywords": [
     "n8n",
